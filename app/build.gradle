@@ -1,0 +1,120 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+evaluationDependsOn(':server')
+
+android {
+    namespace = 'app.scrcpya2a'
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = 'app.scrcpya2a'
+        minSdk = 26          // receptor: Wi-Fi ADB exige Android 11 no CÉREBRO, não no receptor
+        targetSdk = 36
+        versionCode = 3
+        versionName = '0.3.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/{AL2.0,LGPL2.1}']
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Embute o servidor scrcpy (módulo :server, preservado do 5.0.1) como asset "scrcpy-server".
+// Mesmo procedimento do release/build_server.sh do scrcpy: o APK não assinado serve como
+// arquivo de classpath do app_process. Usa a API oficial do AGP (addGeneratedSourceDirectory),
+// que liga a tarefa ao empacotamento de assets de CADA variante.
+// ---------------------------------------------------------------------------------------
+abstract class EmbedScrcpyServerTask extends DefaultTask {
+    /** Pasta build/ do módulo :server (procuramos o APK aqui, em disco, na hora de executar). */
+    @Internal
+    abstract DirectoryProperty getServerBuildDir()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    EmbedScrcpyServerTask() {
+        outputs.upToDateWhen { false } // é barato e evita servidor antigo em cache
+    }
+
+    @TaskAction
+    void embed() {
+        def root = serverBuildDir.get().asFile
+        def apks = []
+        if (root.isDirectory()) {
+            root.eachFileRecurse { f ->
+                if (f.isFile() && f.name.endsWith('.apk')) apks << f
+            }
+        }
+        // prefere APKs de release; depois qualquer outro
+        apks = apks.sort { a, b -> (a.path.toLowerCase().contains('release') ? 0 : 1) <=> (b.path.toLowerCase().contains('release') ? 0 : 1) }
+        if (apks.isEmpty()) {
+            def listing = []
+            def outDirListing = new File(root, 'outputs')
+            if (outDirListing.isDirectory()) outDirListing.eachFileRecurse { if (it.isFile()) listing << it.path }
+            throw new GradleException("Nenhum APK do servidor encontrado em ${root}. " +
+                "Arquivos em build/outputs: ${listing.take(30)}. " +
+                "Rode ':server:assembleRelease' e veja se ele termina sem erro.")
+        }
+        def out = outputDir.get().asFile
+        out.mkdirs()
+        def target = new File(out, 'scrcpy-server')
+        target.bytes = apks.first().bytes
+        if (target.length() == 0) throw new GradleException("scrcpy-server vazio")
+        println "scrcpy-server embutido: ${target.length()} bytes (${apks.first()})"
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def task = tasks.register("embedScrcpyServer${variant.name.capitalize()}", EmbedScrcpyServerTask) { t ->
+            // receptor explícito (t.): evita que dependsOn seja resolvido no Project em vez da Task
+            t.dependsOn(project(':server').tasks.named('assembleRelease'))
+            t.serverBuildDir.set(project(':server').layout.buildDirectory)
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(task, { it.outputDir })
+    }
+}
+
+dependencies {
+    def composeBom = platform('androidx.compose:compose-bom:2025.02.00')
+    implementation composeBom
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+
+    // ADB por Wi-Fi no próprio celular (pareamento TLS/SPAKE2 + conexão + streams)
+    implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
+    implementation 'org.conscrypt:conscrypt-android:2.5.3'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+}
