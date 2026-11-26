@@ -78,7 +78,7 @@ fun MirrorScreen(vm: MainViewModel) {
 
     // Voltar: sai da tela cheia primeiro; só depois fecha o espelhamento.
     // Voltar: sai da tela cheia; depois volta à lista SEM encerrar o monitor.
-    BackHandler { if (vm.fullscreen) vm.setFullscreen(false) else vm.closeViewer() }
+    BackHandler { if (vm.fullscreen) vm.updateFullscreen(false) else vm.closeViewer() }
     val viewing = vm.viewing
 
     DisposableEffect(Unit) {
@@ -131,7 +131,7 @@ fun MirrorScreen(vm: MainViewModel) {
                         })
                         setOnTouchListener { v, ev ->
                             // 4 dedos × 3 toques: sai da tela cheia
-                            if (exitDetector.onTouchEvent(ev) && vm.fullscreen) vm.setFullscreen(false)
+                            if (exitDetector.onTouchEvent(ev) && vm.fullscreen) vm.updateFullscreen(false)
                             vm.onTouch(ev, v.width, v.height)
                             true
                         }
@@ -222,7 +222,7 @@ private fun ControlBar(vm: MainViewModel, onToggleKeyboard: () -> Unit, onRotate
                     }
                 }
                 MenuItem("Tela cheia") {
-                    vm.setFullscreen(true)
+                    vm.updateFullscreen(true)
                     menuOpen = false
                 }
                 MenuItem("Girar este aparelho") {

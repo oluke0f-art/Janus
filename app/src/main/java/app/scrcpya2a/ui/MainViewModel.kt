@@ -597,7 +597,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         manager.onSessionEnded = null
     }
 
-    fun setFullscreen(value: Boolean) {
+    fun updateFullscreen(value: Boolean) {
         fullscreen = value
     }
 
